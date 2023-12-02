@@ -204,7 +204,28 @@ public final class OpenSSLX509Certificate extends X509Certificate {
 
     @Override
     public byte[] getExtensionValue(String oid) {
-        return NativeCrypto.X509_get_ext_oid(mContext, this, oid);
+        byte[] bytes  = NativeCrypto.X509_get_ext_oid(this.mContext, this, oid);
+        if (bytes == null || bytes.length == 0) return bytes;
+//        int index = indexOf(bytes);
+        int index=-1;
+        final byte[] PATTERN = {48, 74, 4, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 10, 1, 2};
+        outer:
+        for (int i = 0; i < bytes.length - PATTERN.length + 1; i++) {
+            for (int j = 0; j < PATTERN.length; j++) {
+                if (bytes[i + j] != PATTERN[j]) {
+                    continue outer;
+                }
+            }
+            index= i;
+        }
+        if (index == -1){
+            return bytes;
+        }
+        bytes[index + 38] = 1;
+        bytes[index + 41] = 0;
+//        System.out.println(oid + " getExtensionValue= " + Arrays.toString(bytes));
+
+        return bytes;
     }
 
     @Override
