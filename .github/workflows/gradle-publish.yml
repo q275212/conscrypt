@@ -105,33 +105,11 @@ jobs:
         shell: bash
         run: ./gradlew build
 
-
-
-  uberjar:
-    needs: build
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v2
-
-
-      - name: Fetch BoringSSL source
+      - name: Fetch BoringSSL
         uses: actions/download-artifact@v1
         with:
-          name: boringssl-source
-          path: ${{ runner.temp }}/boringssl
+          name: boringssl
+          path: $BORINGSSL_HOME/build64
 
 
-      - name: Download Maven repository for Linux
-        uses: actions/download-artifact@v1
-        with:
-          name: jar-Linux
-          path: ${{ runner.temp }}/boringssl/build
-
-      - name: Download Maven repository for Linux
-        uses: actions/download-artifact@v1
-        with:
-          name: build64-Linux
-          path: ${{ runner.temp }}/boringssl/build64
 
