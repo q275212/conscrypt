@@ -1,0 +1,137 @@
+name: Continuous integration
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Run every day at midnight UTC
+    - cron: '0 0 * * *'
+
+jobs:
+  boringssl_clone:
+    # This step ensures that all builders have the same version of BoringSSL
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone BoringSSL repo
+        run: |
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/google/boringssl.git "${{ runner.temp }}/boringssl"
+          echo Using BoringSSL commit: $(cd "${{ runner.temp }}/boringssl"; git rev-parse HEAD)
+
+      - name: Archive BoringSSL source
+        uses: actions/upload-artifact@v1
+        with:
+          name: boringssl-source
+          path: ${{ runner.temp }}/boringssl
+
+  build:
+    needs: boringssl_clone
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up JDK 11 for toolchains
+        uses: actions/setup-java@v1.4.3
+        with:
+          java-version: 11
+
+      - name: Set runner-specific environment variables
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${{ runner.temp }}/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=${{ runner.temp }}/android-sdk" >> $GITHUB_ENV
+          echo "BORINGSSL_HOME=${{ runner.temp }}/boringssl" >> $GITHUB_ENV
+          echo "SDKMANAGER=${{ runner.temp }}/android-sdk/cmdline-tools/bin/sdkmanager" >> $GITHUB_ENV
+          echo "M2_REPO=${{ runner.temp }}/m2" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v2
+
+      - name: Setup Linux environment
+        run: |
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+
+          sudo dpkg --add-architecture i386
+          sudo add-apt-repository ppa:openjdk-r/ppa
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends \
+            gcc-multilib \
+            g++-multilib \
+            ninja-build \
+            openjdk-11-jre-headless
+
+      - name: install Go
+        uses: actions/setup-go@v1
+        with:
+          go-version: '1.19.3'
+
+      - name: Fetch BoringSSL source
+        uses: actions/download-artifact@v1
+        with:
+          name: boringssl-source
+          path: ${{ runner.temp }}/boringssl
+
+      - name: Checkout BoringSSL master branch
+        shell: bash
+        run: |
+          cd "$BORINGSSL_HOME"
+          git checkout --progress --force -B master
+
+      - name: Build BoringSSL 64-bit Linux
+        run: |
+          mkdir -p "$BORINGSSL_HOME/build64"
+          pushd "$BORINGSSL_HOME/build64"
+          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE -DCMAKE_BUILD_TYPE=Release -GNinja ..
+          ninja
+          popd
+
+      - name: Setup Android environment
+        shell: bash
+        run: |
+          cd "${{ runner.temp }}"
+          curl -L "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip" -o android-tools.zip
+          mkdir -p "$ANDROID_HOME"
+          unzip -q android-tools.zip -d "$ANDROID_HOME"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" tools
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" platform-tools
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'build-tools;30.0.3'
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-26'
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'extras;android;m2repository'
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'ndk;25.2.9519653'
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'cmake;3.22.1'
+
+      - name: Build with Gradle
+        shell: bash
+        run: ./gradlew build
+
+
+
+  uberjar:
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+
+      - name: Fetch BoringSSL source
+        uses: actions/download-artifact@v1
+        with:
+          name: boringssl-source
+          path: ${{ runner.temp }}/boringssl
+
+
+      - name: Download Maven repository for Linux
+        uses: actions/download-artifact@v1
+        with:
+          name: jar-Linux
+          path: ${{ runner.temp }}/boringssl/build
+
+      - name: Download Maven repository for Linux
+        uses: actions/download-artifact@v1
+        with:
+          name: build64-Linux
+          path: ${{ runner.temp }}/boringssl/build64
+
